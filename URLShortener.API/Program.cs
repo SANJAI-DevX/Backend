@@ -9,15 +9,20 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
+// Database configuration (SQLite)
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlite(
         builder.Configuration.GetConnectionString("DefaultConnection")
     )
 );
 
-// JWT
-var jwtKey = builder.Configuration["Jwt:Key"] 
-    ?? "your-super-secret-key-min-32-characters-long-for-security";
+// 🔐 JWT Configuration (Environment Variable Only)
+var jwtKey = builder.Configuration["Jwt:Key"];
+
+if (string.IsNullOrEmpty(jwtKey))
+{
+    throw new Exception("JWT Key is not configured. Please set Jwt__Key in environment variables.");
+}
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -30,7 +35,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "URLShortener",
             ValidAudience = builder.Configuration["Jwt:Audience"] ?? "URLShortener",
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtKey))
         };
     });
 
@@ -39,7 +45,7 @@ builder.Services.AddScoped<IUrlService, UrlService>();
 builder.Services.AddScoped<IQrCodeService, QrCodeService>();
 builder.Services.AddScoped<IGeoLocationService, GeoLocationService>();
 
-// Production-safe CORS
+// 🌍 Production CORS (Allow all)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll",
@@ -60,7 +66,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// Auto migrate
+// Auto migrate database
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
