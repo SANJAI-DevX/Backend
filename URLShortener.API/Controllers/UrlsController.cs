@@ -27,18 +27,25 @@ namespace URLShortener.API.Controllers
         [HttpPost]
         public async Task<ActionResult<UrlResponse>> CreateShortUrl([FromBody] CreateUrlRequest request)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             try
             {
-                // Get user ID if authenticated
                 int? userId = null;
+
                 var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim != null)
+
+                // SAFE parsing (prevents crash when logged in)
+                if (userIdClaim != null && int.TryParse(userIdClaim.Value, out var parsedId))
                 {
-                    userId = int.Parse(userIdClaim.Value);
+                    userId = parsedId;
                 }
 
                 var baseUrl = $"{Request.Scheme}://{Request.Host}";
+
                 var result = await _urlService.CreateShortUrlAsync(request, baseUrl, userId);
+
                 return Ok(result);
             }
             catch (ArgumentException ex)
@@ -48,7 +55,7 @@ namespace URLShortener.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error creating short URL");
-                return StatusCode(500, new { error = "An error occurred while creating the short URL" });
+                return StatusCode(500, new { error = ex.Message }); // show real error temporarily
             }
         }
 
@@ -57,15 +64,14 @@ namespace URLShortener.API.Controllers
         public async Task<ActionResult<List<UrlResponse>>> GetMyUrls()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim == null)
-            {
-                return Unauthorized();
-            }
 
-            var userId = int.Parse(userIdClaim.Value);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
+                return Unauthorized();
+
             var urls = await _urlService.GetUserUrlsAsync(userId);
-            
+
             var baseUrl = $"{Request.Scheme}://{Request.Host}";
+
             var response = urls.Select(u => new UrlResponse
             {
                 Id = u.Id,
@@ -85,12 +91,10 @@ namespace URLShortener.API.Controllers
         public async Task<ActionResult> DeleteUrl(string shortCode)
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim == null)
-            {
-                return Unauthorized();
-            }
 
-            var userId = int.Parse(userIdClaim.Value);
+            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
+                return Unauthorized();
+
             var success = await _urlService.DeleteUrlAsync(shortCode, userId);
 
             if (!success)
@@ -105,7 +109,7 @@ namespace URLShortener.API.Controllers
         public async Task<ActionResult<UrlStatisticsResponse>> GetStatistics(string shortCode)
         {
             var stats = await _urlService.GetStatisticsAsync(shortCode);
-            
+
             if (stats == null)
                 return NotFound(new { error = "Short URL not found" });
 
@@ -115,6 +119,9 @@ namespace URLShortener.API.Controllers
         [HttpPost("qr-code")]
         public ActionResult GenerateQrCode([FromBody] QrCodeRequest request)
         {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
             try
             {
                 var qrCodeBytes = _qrCodeService.GenerateQrCode(request);
@@ -123,7 +130,7 @@ namespace URLShortener.API.Controllers
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error generating QR code");
-                return StatusCode(500, new { error = "An error occurred while generating the QR code" });
+                return StatusCode(500, new { error = ex.Message });
             }
         }
     }
@@ -147,9 +154,7 @@ namespace URLShortener.API.Controllers
             var urlMapping = await _urlService.GetByShortCodeAsync(shortCode);
 
             if (urlMapping == null)
-            {
                 return NotFound("Short URL not found");
-            }
 
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
             var userAgent = Request.Headers["User-Agent"].ToString();
