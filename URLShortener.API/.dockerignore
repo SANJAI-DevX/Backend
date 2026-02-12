@@ -1,0 +1,7 @@
+bin
+obj
+*.db
+*.shm
+*.wal
+.git
+.gitignore
