@@ -1,144 +1,66 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using URLShortener.API.DTOs;
-using URLShortener.API.Services;
-using System.Security.Claims;
+using System.ComponentModel.DataAnnotations;
 
-namespace URLShortener.API.Controllers
+namespace URLShortener.API.DTOs
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    public class UrlsController : ControllerBase
+    public class CreateUrlRequest
     {
-        private readonly IUrlService _urlService;
-        private readonly IQrCodeService _qrCodeService;
-        private readonly ILogger<UrlsController> _logger;
+        [Required]
+        [Url(ErrorMessage = "Please provide a valid URL")]
+        [MaxLength(2048)]
+        public string OriginalUrl { get; set; } = string.Empty;
 
-        public UrlsController(
-            IUrlService urlService,
-            IQrCodeService qrCodeService,
-            ILogger<UrlsController> logger)
-        {
-            _urlService = urlService;
-            _qrCodeService = qrCodeService;
-            _logger = logger;
-        }
+        [MaxLength(20)]
+        public string? CustomCode { get; set; }
+    }
 
-        [HttpPost]
-        public async Task<ActionResult<UrlResponse>> CreateShortUrl([FromBody] CreateUrlRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
+    public class UrlResponse
+    {
+        public int Id { get; set; }
+        public string OriginalUrl { get; set; } = string.Empty;
+        public string ShortCode { get; set; } = string.Empty;
+        public string ShortUrl { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public int ClickCount { get; set; }
+        public DateTime? LastAccessedAt { get; set; }
+    }
 
-            try
-            {
-                int? userId = null;
+    public class QrCodeRequest
+    {
+        [Required]
+        public string Url { get; set; } = string.Empty;
 
-                var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-                if (userIdClaim != null)
-                {
-                    userId = int.Parse(userIdClaim.Value);
-                }
+        [Range(100, 1000)]
+        public int Size { get; set; } = 300;
 
-                var baseUrl = $"{Request.Scheme}://{Request.Host}";
+        public QrCodeErrorCorrectionLevel ErrorCorrectionLevel { get; set; } = QrCodeErrorCorrectionLevel.M;
+    }
 
-                var result = await _urlService.CreateShortUrlAsync(request, baseUrl, userId);
+    public enum QrCodeErrorCorrectionLevel
+    {
+        L = 0,
+        M = 1,
+        Q = 2,
+        H = 3
+    }
 
-                return Ok(result);
-            }
-            catch (ArgumentException ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error creating short URL");
-                return StatusCode(500, new { error = "An error occurred while creating the short URL" });
-            }
-        }
+    public class UrlStatisticsResponse
+    {
+        public int Id { get; set; }
+        public string OriginalUrl { get; set; } = string.Empty;
+        public string ShortCode { get; set; } = string.Empty;
+        public int TotalClicks { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? LastAccessedAt { get; set; }
+        public List<ClickLogDto> RecentClicks { get; set; } = new();
+        public Dictionary<string, int> ClicksByCountry { get; set; } = new();
+    }
 
-        [HttpGet("my-urls")]
-        [Authorize]
-        public async Task<ActionResult<List<UrlResponse>>> GetMyUrls()
-        {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim == null)
-            {
-                return Unauthorized();
-            }
-
-            var userId = int.Parse(userIdClaim.Value);
-            var urls = await _urlService.GetUserUrlsAsync(userId);
-
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
-
-            var response = urls.Select(u => new UrlResponse
-            {
-                Id = u.Id,
-                OriginalUrl = u.OriginalUrl,
-                ShortCode = u.ShortCode,
-                ShortUrl = $"{baseUrl}/{u.ShortCode}",
-                CreatedAt = u.CreatedAt,
-                ClickCount = u.ClickCount,
-                LastAccessedAt = u.LastAccessedAt
-            }).ToList();
-
-            return Ok(response);
-        }
-
-        [HttpDelete("{shortCode}")]
-        [Authorize]
-        public async Task<ActionResult> DeleteUrl(string shortCode)
-        {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim == null)
-            {
-                return Unauthorized();
-            }
-
-            var userId = int.Parse(userIdClaim.Value);
-
-            var success = await _urlService.DeleteUrlAsync(shortCode, userId);
-
-            if (!success)
-            {
-                return NotFound(new { error = "URL not found or you don't have permission to delete it" });
-            }
-
-            return Ok(new { message = "URL deleted successfully" });
-        }
-
-        [HttpGet("{shortCode}/stats")]
-        public async Task<ActionResult<UrlStatisticsResponse>> GetStatistics(string shortCode)
-        {
-            var stats = await _urlService.GetStatisticsAsync(shortCode);
-
-            if (stats == null)
-                return NotFound(new { error = "Short URL not found" });
-
-            return Ok(stats);
-        }
-
-        [HttpPost("qr-code")]
-        public ActionResult GenerateQrCode([FromBody] QrCodeRequest request)
-        {
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-
-            try
-            {
-                var qrCodeBytes = _qrCodeService.GenerateQrCode(request);
-                return File(qrCodeBytes, "image/png");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error generating QR code");
-                return StatusCode(500, new { error = "An error occurred while generating the QR code" });
-            }
-        }
+    public class ClickLogDto
+    {
+        public DateTime ClickedAt { get; set; }
+        public string? IpAddress { get; set; }
+        public string? Country { get; set; }
+        public string? City { get; set; }
+        public string? UserAgent { get; set; }
     }
 }
